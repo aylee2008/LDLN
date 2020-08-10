@@ -172,6 +172,13 @@ class UpsamplingBottleneck(nn.Module):
 class LaneNet(nn.Module):
     def __init__(self):
         super(LaneNet, self).__init__()
+
+        self.seg_loss = nn.CrossEntropyLoss()
+        self.scale_var = 1
+        self.scale_dist = 1 
+        self.scale_reg = 0.001
+        self.delta_v = 0.5
+        self.delta_d = 3.0
     
         # Stage 0 - Initial Block
         self.initial_block = InitialBlock(3, 16)
@@ -239,7 +246,7 @@ class LaneNet(nn.Module):
         self.segmentation_transposed_conv = nn.ConvTranspose2d(16, 1, kernel_size = 3, stride = 2, padding = 1, output_padding = 1, bias = False)
         self.cluster_transposed_conv = nn.ConvTranspose2d(16, 5, kernel_size = 3, stride = 2, padding =1, output_padding = 1, bias = False)
     
-    def forward(self, x):
+    def forward(self, x, segLabel):
         # Stage 0 - Initial Block
         x = self.initial_block(x)
 
@@ -300,8 +307,70 @@ class LaneNet(nn.Module):
 
         pix_embedding = F.relu(cluster)
         binary_seg_ret = torch.sigmoid(seg)
+
+        binary_seg_ret = torch.squeeze(binary_seg_ret, 1)
         
-        #out = torch.cat((pix_embedding, binary_seg_ret), dim = 1)
+        var_loss, dist_loss, reg_loss = self.discriminative_loss(pix_embedding, segLabel)
+        seg_loss = self.seg_loss(binary_seg_ret, torch.gt(segLabel, 0).type(torch.long))
+
+        cluster_loss = var_loss * self.scale_var + dist_loss * self.scale_dist + reg_loss * self.scale_reg
+        total_loss = cluster_loss + seg_loss
         
-        return pix_embedding, binary_seg_ret
+        return {
+            'pix_embedding' : pix_embedding,
+            'binary_seg' : binary_seg_ret,
+            'cluster_loss' : cluster_loss,
+            'seg_loss' : seg_loss,
+            'total_loss' : total_loss
+        }
+    
+    def discriminative_loss(self, embedding, seg_gt):
+        batch_size = embedding.shape[0]
         
+        var_loss = torch.tensor(0, dtype = embedding.dtype, device = embedding.device)
+        dist_loss = torch.tensor(0, dtype = embedding.dtype, device = embedding.device)
+        reg_loss = torch.tensor(0, dtype = embedding.dtype, device = embedding.device)
+
+        for b in range(batch_size):
+            embedding_b = embedding[b]
+            seg_gt_b = seg_gt[b]
+
+            labels = torch.unique(seg_gt_b)
+            labels = labels[labels!=0]
+            num_lanes = len(labels)
+            if num_lanes == 0:
+                _nonsense = embedding.sum()
+                _zero = torch.zeros_like(_nonsense)
+                var_loss = var_loss + _nonsense * _zero
+                dist_loss = dist_loss + _nonsense * _zero
+                reg_loss = reg_loss + _nonsense * _zero
+                continue
+
+            centroid_mean = []
+            for lane_idx in labels:
+                seg_mask_i = (seg_gt_b == lane_idx)
+                if not seg_mask_i.any():
+                    continue
+                embedding_i = embedding_b[:, seg_mask_i]
+
+                mean_i = torch.mean(embedding_i, dim=1)
+                centroid_mean.append(mean_i)
+
+                var_loss = var_loss + torch.mean(F.relu(torch.norm(embedding_i-mean_i.reshape(5, 1), dim = 0) - self.delta_v)**2) / num_lanes
+            centroid_mean = torch.stack(centroid_mean)
+
+            if num_lanes > 1:
+                centroid_mean1 = centroid_mean.reshape(-1, 1, 5)
+                centroid_mean2 = centroid_mean.reshape(1, -1, 5)
+                dist = torch.norm(centroid_mean1-centroid_mean2, dim=2)
+                dist = dist + torch.eye(num_lanes, dtype=dist.dtype ,device=dist.device) * self.delta_d
+
+                dist_loss = dist_loss + torch.sum(F.relu(-dist + self.delta_d)**2) / (num_lanes*(num_lanes-1)) / 2
+            
+            reg_loss = reg_loss + torch.mean(torch.norm(centroid_mean, dim=1))
+
+            var_loss = var_loss / batch_size
+            dist_loss = dist_loss / batch_size
+            reg_loss = reg_loss / batch_size
+
+            return var_loss, dist_loss, reg_loss
