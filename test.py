@@ -43,7 +43,7 @@ if __name__ == "__main__":
     print(time.time() - start_time)
     embedding_time = time.time()
 
-    lane_seg_img = embedding_post_processing(embedding, binary_seg_pred, opt.band_width, 5)
+    lane_seg_img = embedding_post_processing(embedding, binary_seg_pred, opt.band_width, 4)
     color = np.array([[255, 125, 0], [0, 255, 0], [0, 0, 255], [0, 255, 255], [255, 0, 255]], dtype='uint8')
     
     for i, lane_idx in enumerate(np.unique(lane_seg_img)):

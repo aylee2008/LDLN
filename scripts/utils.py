@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.cluster import MeanShift, estimate_bandwidth
+from sklearn.cluster import MeanShift, KMeans
 
 def embedding_post_processing(embedding, bin_seg, band_width = 1.5, max_num_lane = 5):
     
@@ -10,6 +10,8 @@ def embedding_post_processing(embedding, bin_seg, band_width = 1.5, max_num_lane
         return cluster_result
 
     mean_shift = MeanShift(bandwidth= 1.5, bin_seeding= True, n_jobs= -1)
+    #k_mean = KMeans(n_clusters= 5, random_state=0)
+
     mean_shift.fit(cluster_list)
 
     labels = mean_shift.labels_

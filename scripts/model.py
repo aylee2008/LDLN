@@ -244,7 +244,7 @@ class LaneNet(nn.Module):
         self.cluster_regular5_1 = RegularBottleneck(16, padding =1, dropout_prob = 0.05)
 
         self.segmentation_transposed_conv = nn.ConvTranspose2d(16, 2, kernel_size = 3, stride = 2, padding = 1, output_padding = 1, bias = False)
-        self.cluster_transposed_conv = nn.ConvTranspose2d(16, 5, kernel_size = 3, stride = 2, padding =1, output_padding = 1, bias = False)
+        self.cluster_transposed_conv = nn.ConvTranspose2d(16, 3, kernel_size = 3, stride = 2, padding =1, output_padding = 1, bias = False)
     
     def forward(self, x, segLabel = None):
         # Stage 0 - Initial Block
@@ -367,12 +367,12 @@ class LaneNet(nn.Module):
                 mean_i = torch.mean(embedding_i, dim=1)
                 centroid_mean.append(mean_i)
 
-                var_loss = var_loss + torch.mean(F.relu(torch.norm(embedding_i-mean_i.reshape(5, 1), dim = 0) - self.delta_v)**2) / num_lanes
+                var_loss = var_loss + torch.mean(F.relu(torch.norm(embedding_i-mean_i.reshape(3, 1), dim = 0) - self.delta_v)**2) / num_lanes
             centroid_mean = torch.stack(centroid_mean)
 
             if num_lanes > 1:
-                centroid_mean1 = centroid_mean.reshape(-1, 1, 5)
-                centroid_mean2 = centroid_mean.reshape(1, -1, 5)
+                centroid_mean1 = centroid_mean.reshape(-1, 1, 3)
+                centroid_mean2 = centroid_mean.reshape(1, -1, 3)
                 dist = torch.norm(centroid_mean1-centroid_mean2, dim=2)
                 dist = dist + torch.eye(num_lanes, dtype=dist.dtype ,device=dist.device) * self.delta_d
 
