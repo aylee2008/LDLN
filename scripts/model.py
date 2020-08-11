@@ -243,10 +243,10 @@ class LaneNet(nn.Module):
         self.segmentation_regular5_1 = RegularBottleneck(16, padding = 1, dropout_prob = 0.05)
         self.cluster_regular5_1 = RegularBottleneck(16, padding =1, dropout_prob = 0.05)
 
-        self.segmentation_transposed_conv = nn.ConvTranspose2d(16, 1, kernel_size = 3, stride = 2, padding = 1, output_padding = 1, bias = False)
+        self.segmentation_transposed_conv = nn.ConvTranspose2d(16, 2, kernel_size = 3, stride = 2, padding = 1, output_padding = 1, bias = False)
         self.cluster_transposed_conv = nn.ConvTranspose2d(16, 5, kernel_size = 3, stride = 2, padding =1, output_padding = 1, bias = False)
     
-    def forward(self, x, segLabel):
+    def forward(self, x, segLabel = None):
         # Stage 0 - Initial Block
         x = self.initial_block(x)
 
@@ -306,16 +306,26 @@ class LaneNet(nn.Module):
         cluster = self.cluster_transposed_conv(cluster)
 
         pix_embedding = F.relu(cluster)
-        binary_seg_ret = torch.sigmoid(seg)
+        binary_seg_ret = F.leaky_relu(seg)
 
-        binary_seg_ret = torch.squeeze(binary_seg_ret, 1)
+        #binary_seg_ret = torch.squeeze(binary_seg_ret, 1)
+
+        if segLabel is not None:
+            var_loss, dist_loss, reg_loss = self.discriminative_loss(pix_embedding, segLabel)
+            #print(binary_seg_ret.shape)
+            #print(segLabel.shape)
+            segLabel = segLabel.squeeze(1)
+            seg_loss = self.seg_loss(binary_seg_ret, torch.gt(segLabel, 0).type(torch.long))
+
+        else:
+            var_loss = torch.tensor(0, dtype=x.dtype, device=x.device)
+            dist_loss = torch.tensor(0, dtype=x.dtype, device=x.device)
+            seg_loss = torch.tensor(0, dtype=x.dtype, device=x.device)
+            reg_loss = torch.tensor(0, dtype=x.dtype, device=x.device)
         
-        var_loss, dist_loss, reg_loss = self.discriminative_loss(pix_embedding, segLabel)
-        seg_loss = self.seg_loss(binary_seg_ret, torch.gt(segLabel, 0).type(torch.long))
-
         cluster_loss = var_loss * self.scale_var + dist_loss * self.scale_dist + reg_loss * self.scale_reg
         total_loss = cluster_loss + seg_loss
-        
+
         return {
             'pix_embedding' : pix_embedding,
             'binary_seg' : binary_seg_ret,
@@ -334,6 +344,7 @@ class LaneNet(nn.Module):
         for b in range(batch_size):
             embedding_b = embedding[b]
             seg_gt_b = seg_gt[b]
+            seg_gt_b = seg_gt_b.squeeze(0)
 
             labels = torch.unique(seg_gt_b)
             labels = labels[labels!=0]

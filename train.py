@@ -11,11 +11,11 @@ from data_loader.dataset import *
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=100, help="number of epochs")
-    parser.add_argument("--batch_size", type=int, default=4 , help="size of each image batch")
+    parser.add_argument("--batch_size", type=int, default=6 , help="size of each image batch")
     parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
     parser.add_argument("--pretrained_weights", type=str, help="if specified starts from checkpoint model")
     parser.add_argument("--gradient_accumulations", type=int, default=2, help="number of gradient accums before step")
-    parser.add_argument("--checkpoint_interval", type=int, default=2, help="interval between saving model weights")
+    parser.add_argument("--checkpoint_interval", type=int, default=1, help="interval between saving model weights")
     parser.add_argument("--train_path", type=str, help = "train.txt path")
     opt = parser.parse_args()
 
@@ -49,12 +49,11 @@ if __name__ == "__main__":
     for epoch in range(opt.epochs):
         model.train()
         for batch_idx, sample in enumerate(dataloader):
-            img = sample['img'].to(device)
-            segLabel = sample['segLabel'].to(device)
+            img = Variable(sample['img'].to(DEVICE))
+            segLabel = Variable(sample['segLabel'].to(DEVICE), requires_grad= False)
 
             batches_done = len(dataloader) * epoch + batch_idx
 
-            optimizer.zero_grad()
             output = model(img, segLabel)
             # pix_embedding = output['pix_embedding']
             # binary_seg = output['binary_seg_ret']
@@ -66,8 +65,11 @@ if __name__ == "__main__":
 
             if batches_done % opt.gradient_accumulations:
                 optimizer.step()
+                optimizer.zero_grad()
 
             print('[{}][{}] Cluster loss : {:.4f} Seg loss: {:.4f} Total loss: {:.4f}'.format(epoch, batch_idx, cluster_loss, seg_loss, total_loss))
+        if epoch % opt.checkpoint_interval == 0:
+            torch.save(model.state_dict(), f"checkpoints/ldln_ckpt_%d.pth" % epoch)
 
 
 
